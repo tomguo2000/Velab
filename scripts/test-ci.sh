@@ -16,6 +16,19 @@ pass() { echo -e "${GREEN}✓ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 info() { echo -e "${YELLOW}▶ $1${NC}"; }
 
+# ── macOS / Linux 工具路径自适应 ──
+OS_TYPE="$(uname -s)"
+if [[ "$OS_TYPE" == "Darwin" ]]; then
+  # Homebrew 优先（Apple Silicon 或 Intel）
+  HOMEBREW_PREFIX="${HOMEBREW_PREFIX:-$(brew --prefix 2>/dev/null || echo /usr/local)}"
+  export PATH="$HOMEBREW_PREFIX/bin:$PATH"
+  REDIS_START_HINT="brew services start redis"
+  PG_START_HINT="brew services start postgresql@14  (或对应版本)"
+else
+  REDIS_START_HINT="sudo systemctl start redis"
+  PG_START_HINT="sudo systemctl start postgresql"
+fi
+
 # ── 前置检查：PostgreSQL fota_db_test ──
 info "检查 PostgreSQL fota_db_test..."
 PG_CONN="-U postgres -h 127.0.0.1"
@@ -24,13 +37,13 @@ if PGPASSWORD=fota_password psql $PG_CONN -c '\q' fota_db_test &>/dev/null 2>&1;
 else
   info "尝试创建测试库..."
   PGPASSWORD=fota_password psql $PG_CONN -c "CREATE DATABASE fota_db_test;" 2>/dev/null || true
-  PGPASSWORD=fota_password psql $PG_CONN -c '\q' fota_db_test &>/dev/null || fail "PostgreSQL fota_db_test 不可用，请确认 PostgreSQL 已启动且密码为 fota_password"
+  PGPASSWORD=fota_password psql $PG_CONN -c '\q' fota_db_test &>/dev/null || fail "PostgreSQL fota_db_test 不可用，请确认 PostgreSQL 已启动：$PG_START_HINT"
   pass "PostgreSQL fota_db_test 已创建"
 fi
 
 # ── 前置检查：Redis ──
 info "检查 Redis..."
-redis-cli ping &>/dev/null || fail "Redis 未运行，请先启动：sudo systemctl start redis"
+redis-cli ping &>/dev/null || fail "Redis 未运行，请先启动：$REDIS_START_HINT"
 pass "Redis 运行正常"
 
 # ══════════════════════════════════════════════
@@ -67,7 +80,7 @@ POSTGRES_HOST="localhost" \
 POSTGRES_PORT="5432" \
 STORAGE_ROOT="./test_data" \
 PYTHONPATH="." \
-  "$VENV_BIN/pytest" tests/ -v --cov=api --cov=models --cov=services || fail "Backend 测试失败"
+  "$VENV_BIN/pytest" tests/ log_pipeline/tests/ -v --cov=api --cov=models --cov=services --cov=log_pipeline || fail "Backend 测试失败"
 pass "Backend 测试通过"
 
 # ══════════════════════════════════════════════

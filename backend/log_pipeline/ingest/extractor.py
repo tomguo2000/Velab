@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import platform
 import re
 import shutil
 import tarfile
@@ -12,8 +13,6 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
-
-import rarfile
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +231,37 @@ class Extractor:
         depth: int,
         source_archive: Optional[str],
     ) -> Iterator[ExtractedFile]:
-        with rarfile.RarFile(str(archive_path)) as rf:
+        try:
+            import rarfile as _rarfile
+        except ImportError as exc:
+            raise ImportError(
+                "RAR support requires the 'rarfile' package. "
+                "Run: pip install rarfile==4.2"
+            ) from exc
+
+        # rarfile tries UNRAR_TOOL ("unrar") first, then UNAR_TOOL ("unar").
+        # On macOS neither is in PATH by default — detect and configure early
+        # so the error message is helpful rather than a raw subprocess failure.
+        _unrar = shutil.which(_rarfile.UNRAR_TOOL)  # "unrar"
+        _unar = shutil.which(_rarfile.UNAR_TOOL)     # "unar"
+        if not _unrar and not _unar:
+            if platform.system() == "Darwin":
+                hint = (
+                    "On macOS install via Homebrew: brew install unar\n"
+                    "Alternatively: brew install rar"
+                )
+            else:
+                hint = "On Debian/Ubuntu: sudo apt-get install -y unrar"
+            raise RuntimeError(
+                f"No RAR decompression tool found in PATH "
+                f"(tried '{_rarfile.UNRAR_TOOL}' and '{_rarfile.UNAR_TOOL}'). "
+                f"{hint}"
+            )
+        # Prefer unar on macOS when unrar is absent (unar handles RAR5 well)
+        if not _unrar and _unar and platform.system() == "Darwin":
+            _rarfile.UNRAR_TOOL = _rarfile.UNAR_TOOL
+
+        with _rarfile.RarFile(str(archive_path)) as rf:
             for info in rf.infolist():
                 if info.is_dir():
                     continue

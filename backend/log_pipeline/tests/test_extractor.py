@@ -271,7 +271,8 @@ def test_extractor_rar_basic(tmp_path: Path, work_root: Path):
     archive = tmp_path / "test.rar"
     archive.write_bytes(b"placeholder")
 
-    with patch("log_pipeline.ingest.extractor.rarfile.RarFile", return_value=rf):
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value="/usr/bin/unrar"), \
+         patch("rarfile.RarFile", return_value=rf):
         files = list(Extractor(work_root).extract(archive))
 
     assert len(files) == 1
@@ -288,7 +289,8 @@ def test_extractor_rar_skips_directory_entries(tmp_path: Path, work_root: Path):
     archive = tmp_path / "dirs.rar"
     archive.write_bytes(b"placeholder")
 
-    with patch("log_pipeline.ingest.extractor.rarfile.RarFile", return_value=rf):
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value="/usr/bin/unrar"), \
+         patch("rarfile.RarFile", return_value=rf):
         files = list(Extractor(work_root).extract(archive))
 
     rels = [f.relative_path for f in files]
@@ -304,7 +306,8 @@ def test_extractor_rar_normalizes_windows_backslash_paths(tmp_path: Path, work_r
     archive = tmp_path / "win.rar"
     archive.write_bytes(b"placeholder")
 
-    with patch("log_pipeline.ingest.extractor.rarfile.RarFile", return_value=rf):
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value="/usr/bin/unrar"), \
+         patch("rarfile.RarFile", return_value=rf):
         files = list(Extractor(work_root).extract(archive))
 
     assert len(files) == 1
@@ -323,7 +326,8 @@ def test_extractor_rar_nested_zip_expands(tmp_path: Path, work_root: Path):
     archive = tmp_path / "outer.rar"
     archive.write_bytes(b"placeholder")
 
-    with patch("log_pipeline.ingest.extractor.rarfile.RarFile", return_value=rf):
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value="/usr/bin/unrar"), \
+         patch("rarfile.RarFile", return_value=rf):
         files = list(Extractor(work_root).extract(archive))
 
     rels = [f.relative_path for f in files]
@@ -332,3 +336,58 @@ def test_extractor_rar_nested_zip_expands(tmp_path: Path, work_root: Path):
     assert nested.nested_depth == 1
     assert nested.temp_path.read_bytes() == b"DEEP"
 
+
+# _extract_rar — platform detection tests
+
+def test_extractor_rar_no_tool_raises_runtime_error(tmp_path: Path, work_root: Path):
+    """When neither unrar nor unar is in PATH, a RuntimeError with install hint is raised."""
+    archive = tmp_path / "no_tool.rar"
+    archive.write_bytes(b"placeholder")
+
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value=None), \
+         patch("log_pipeline.ingest.extractor.platform.system", return_value="Linux"):
+        import pytest as _pytest
+        with _pytest.raises(RuntimeError, match="No RAR decompression tool found"):
+            list(Extractor(work_root).extract(archive))
+
+
+def test_extractor_rar_no_tool_macos_hint(tmp_path: Path, work_root: Path):
+    """Error message on macOS mentions brew install unar."""
+    archive = tmp_path / "mac.rar"
+    archive.write_bytes(b"placeholder")
+
+    with patch("log_pipeline.ingest.extractor.shutil.which", return_value=None), \
+         patch("log_pipeline.ingest.extractor.platform.system", return_value="Darwin"):
+        import pytest as _pytest
+        with _pytest.raises(RuntimeError, match="brew install unar"):
+            list(Extractor(work_root).extract(archive))
+
+
+def test_extractor_rar_macos_falls_back_to_unar(tmp_path: Path, work_root: Path):
+    """On macOS with only unar available, rarfile.UNRAR_TOOL is set to UNAR_TOOL."""
+    import rarfile as _rarfile
+
+    content = b"mac log line"
+    fake_info = _make_rar_info("mac.log")
+    rf = _fake_rf_ctx([fake_info], {"mac.log": content})
+
+    archive = tmp_path / "mac.rar"
+    archive.write_bytes(b"placeholder")
+
+    original_tool = _rarfile.UNRAR_TOOL
+    try:
+        # Simulate macOS: unrar absent, unar present
+        def _which(cmd: str) -> str | None:
+            return "/usr/local/bin/unar" if cmd == _rarfile.UNAR_TOOL else None
+
+        with patch("log_pipeline.ingest.extractor.shutil.which", side_effect=_which), \
+             patch("log_pipeline.ingest.extractor.platform.system", return_value="Darwin"), \
+             patch("rarfile.RarFile", return_value=rf):
+            files = list(Extractor(work_root).extract(archive))
+
+        # After the call, UNRAR_TOOL should have been switched to UNAR_TOOL
+        assert _rarfile.UNRAR_TOOL == _rarfile.UNAR_TOOL
+        assert len(files) == 1
+        assert files[0].relative_path == "mac.log"
+    finally:
+        _rarfile.UNRAR_TOOL = original_tool  # restore global state

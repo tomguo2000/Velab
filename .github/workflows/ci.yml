@@ -80,7 +80,7 @@ jobs:
         run: |
           cd backend
           mkdir -p test_data
-          pytest tests/ -v --cov=api --cov=models --cov=services
+          pytest tests/ log_pipeline/tests/ -v --cov=api --cov=models --cov=services --cov=log_pipeline
 
   frontend-test:
     name: Frontend Tests

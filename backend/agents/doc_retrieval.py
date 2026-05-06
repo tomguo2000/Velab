@@ -205,17 +205,38 @@ class DocRetrievalAgent(BaseAgent):
             except (json.JSONDecodeError, IOError):
                 pass
 
-        # 扫描 docs 目录中的文本文件
+        # 扫描 docs 目录中的文本文件，对大文档使用滑动窗口切块提升召回率
         if DOC_DIR.exists():
+            from services.doc_chunker import DocumentChunker
+            chunker = DocumentChunker(
+                chunk_size=settings.DOC_CHUNK_SIZE,
+                chunk_overlap=settings.DOC_CHUNK_OVERLAP,
+            )
             for f in DOC_DIR.iterdir():
                 if f.suffix in (".txt", ".md"):
                     try:
                         content = f.read_text(encoding="utf-8", errors="ignore")
-                        docs.append({
-                            "title": f.stem,
-                            "content": content[:2000],
-                            "excerpt": content[:300],
-                        })
+                        if len(content) <= settings.DOC_CHUNK_INLINE_THRESHOLD:
+                            # 短文档直接作为单条记录
+                            docs.append({
+                                "title": f.stem,
+                                "content": content,
+                                "excerpt": content[:300],
+                            })
+                        else:
+                            # 大文档：滑动窗口切块，每块作为独立检索单元
+                            chunks = chunker.chunk_text(
+                                content,
+                                title=f.stem,
+                                doc_path=str(f),
+                                strategy="sliding_window",
+                            )
+                            for chunk in chunks:
+                                docs.append({
+                                    "title": f"{f.stem} [chunk {chunk.chunk_index + 1}/{chunk.total_chunks}]",
+                                    "content": chunk.content,
+                                    "excerpt": chunk.content[:300],
+                                })
                     except IOError:
                         pass
 

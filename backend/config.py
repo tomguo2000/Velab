@@ -26,7 +26,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class DeploymentMode(str, Enum):
     """
     部署模式枚举
-    
+
     定义系统的两种部署场景，影响 LLM 服务的访问方式：
     - SCENARIO_A: 国内部署模式，通过 LiteLLM 网关中转
     - SCENARIO_B: 海外部署模式，直连供应商 API
@@ -38,16 +38,16 @@ class DeploymentMode(str, Enum):
 class Settings(BaseSettings):
     """
     应用配置类
-    
+
     使用 pydantic-settings 自动从 .env 文件和环境变量加载配置。
     所有配置项都有合理的默认值，可通过环境变量覆盖。
-    
+
     配置分类：
     1. 基础配置：项目名称、部署模式
     2. 数据库配置：PostgreSQL、Redis 连接参数
     3. LLM 配置：多供应商 API 密钥和端点
     4. 编排器配置：流式输出等行为控制
-    
+
     派生属性：
     - DATABASE_URL: 自动生成的数据库连接字符串
     - LLM_BASE_URL: 根据部署模式自动选择的 LLM 端点
@@ -93,9 +93,9 @@ class Settings(BaseSettings):
     def DATABASE_URL(self) -> str:
         """
         生成 PostgreSQL 同步连接字符串
-        
+
         使用 psycopg2 驱动，供 SQLAlchemy ORM 使用。
-        
+
         Returns:
             str: 格式为 postgresql://user:password@host:port/database 的连接串
         """
@@ -103,14 +103,14 @@ class Settings(BaseSettings):
             f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
             f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
-    
+
     @property
     def DATABASE_URL_ASYNC(self) -> str:
         """
         生成 PostgreSQL 异步连接字符串
-        
+
         使用 asyncpg 驱动，供异步操作使用。
-        
+
         Returns:
             str: 格式为 postgresql+asyncpg://user:password@host:port/database 的连接串
         """
@@ -123,10 +123,10 @@ class Settings(BaseSettings):
     def LLM_BASE_URL(self) -> Optional[str]:
         """
         根据部署模式自动选择 LLM 服务的 Base URL
-        
+
         - 场景 A（国内）：返回 LiteLLM 网关地址
         - 场景 B（海外）：返回 None，使用 OpenAI SDK 默认端点
-        
+
         Returns:
             Optional[str]: LLM API 的基础 URL，场景 B 返回 None
         """
@@ -142,10 +142,10 @@ class Settings(BaseSettings):
     def LLM_API_KEY(self) -> Optional[str]:
         """
         根据部署模式自动选择 LLM 服务的 API Key
-        
+
         - 场景 A（国内）：返回 LiteLLM 网关的统一密钥
         - 场景 B（海外）：返回第一个可用的供应商密钥（优先 Anthropic）
-        
+
         Returns:
             Optional[str]: LLM API 密钥
         """
@@ -173,6 +173,14 @@ class Settings(BaseSettings):
 
     # 预计算 embedding 索引的存放目录（相对于 backend/data/）
     VECTOR_INDEX_DIR: str = "indexes/vector"
+
+    # ── 文档切块配置（doc_chunker.py / doc_retrieval.py 使用）──
+    # 滑动窗口每块的目标字符数
+    DOC_CHUNK_SIZE: int = 500
+    # 相邻 chunk 之间的重叠字符数（提高跨块关键词召回率）
+    DOC_CHUNK_OVERLAP: int = 80
+    # 短文档直接入库的字符数阈值；超过此值时启用滑动窗口切块
+    DOC_CHUNK_INLINE_THRESHOLD: int = 600
 
     # ── CORS 配置 ──
     # 逗号分隔的允许来源列表，生产环境应设置为具体域名

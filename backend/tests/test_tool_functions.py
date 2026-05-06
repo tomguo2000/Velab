@@ -5,6 +5,7 @@ services/tool_functions.py 单元测试
 - read_workspace_file  — 文件存在 / 不存在 / 异常
 - append_workspace_notes — workspace 存在 / 不存在
 - update_todo_status   — 标记完成 / 取消完成 / 未找到 / 文件缺失
+- clip_log_by_time_window — 时间裁剪 / fallback / 空窗口
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from services.tool_functions import (
     append_workspace_notes,
+    clip_log_by_time_window,
     read_workspace_file,
     update_todo_status,
 )
@@ -135,3 +137,94 @@ class TestUpdateTodoStatus:
         self._make_todo(tmp_path, "- [ ] FOTA升级\n")
         result = await update_todo_status(str(tmp_path), "fota升级", completed=True)
         assert result["success"] is True
+
+
+# ── clip_log_by_time_window ───────────────────────────────────────────────────
+
+_SAMPLE_LOG = """\
+[2026-01-15 14:23:00.000][iCGM][INFO] FOTA start
+[2026-01-15 14:23:30.000][iCGM][INFO] DOWNLOAD begin
+[2026-01-15 14:24:00.000][iCGM][ERROR] EMMC_WRITE_TIMEOUT
+[2026-01-15 14:24:05.000][iCGM][WARN] retry 1
+[2026-01-15 14:25:00.000][iCGM][INFO] REBOOT triggered
+"""
+
+
+class TestClipLogByTimeWindow:
+    @pytest.mark.asyncio
+    async def test_clips_within_window(self):
+        # 故障时刻 14:24:00，前60s=14:23:00，后30s=14:24:30
+        result = await clip_log_by_time_window(
+            _SAMPLE_LOG,
+            fault_time="2026-01-15 14:24:00",
+            before_seconds=60,
+            after_seconds=30,
+        )
+        assert result["fallback"] is False
+        assert "EMMC_WRITE_TIMEOUT" in result["clipped_text"]
+        assert "retry 1" in result["clipped_text"]
+        # 14:25:00 超出窗口，不应出现
+        assert "REBOOT triggered" not in result["clipped_text"]
+        assert result["matched_lines"] > 0
+
+    @pytest.mark.asyncio
+    async def test_excludes_lines_before_window(self):
+        # 窗口只取故障时刻后5秒
+        result = await clip_log_by_time_window(
+            _SAMPLE_LOG,
+            fault_time="2026-01-15 14:24:00",
+            before_seconds=0,
+            after_seconds=5,
+        )
+        assert result["fallback"] is False
+        assert "FOTA start" not in result["clipped_text"]
+        assert "EMMC_WRITE_TIMEOUT" in result["clipped_text"]
+
+    @pytest.mark.asyncio
+    async def test_invalid_fault_time_fallback(self):
+        result = await clip_log_by_time_window(
+            _SAMPLE_LOG,
+            fault_time="not-a-date",
+        )
+        assert result["fallback"] is True
+        assert result["clipped_text"] != ""
+
+    @pytest.mark.asyncio
+    async def test_no_timestamp_lines_fallback(self):
+        log_no_ts = "plain line 1\nplain line 2\n"
+        result = await clip_log_by_time_window(
+            log_no_ts,
+            fault_time="2026-01-15 14:24:00",
+        )
+        assert result["fallback"] is True
+
+    @pytest.mark.asyncio
+    async def test_max_lines_truncation(self):
+        # 构造 200 行日志
+        many_lines = "\n".join(
+            f"[2026-01-15 14:24:0{i % 10}.000][ctrl][INFO] line {i}" for i in range(200)
+        )
+        result = await clip_log_by_time_window(
+            many_lines,
+            fault_time="2026-01-15 14:24:05",
+            before_seconds=60,
+            after_seconds=60,
+            max_lines=50,
+        )
+        assert result["matched_lines"] <= 50
+
+    @pytest.mark.asyncio
+    async def test_window_start_end_reported(self):
+        result = await clip_log_by_time_window(
+            _SAMPLE_LOG,
+            fault_time="2026-01-15 14:24:00",
+            before_seconds=60,
+            after_seconds=30,
+        )
+        assert result["window_start"] == "2026-01-15 14:23:00"
+        assert result["window_end"] == "2026-01-15 14:24:30"
+
+    @pytest.mark.asyncio
+    async def test_total_lines_reported(self):
+        result = await clip_log_by_time_window(_SAMPLE_LOG, fault_time="2026-01-15 14:24:00")
+        assert result["total_lines"] == len(_SAMPLE_LOG.splitlines())

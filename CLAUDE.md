@@ -171,3 +171,12 @@
   - `_load_logs_from_bundle()` 新增 `time_hint` 参数，解析成功时缩窄查询窗口，失败时退化为全量
   - `backend/agents/orchestrator.py`：`_run_agent()` 从 tool call args 提取 `time_hint` 注入 `agent_context`
 - **测试总量**：344 passed（后端），201 passed（前端），全量无回归
+
+### 2026-05-07: Scenario B 模型分层路由修复
+- **问题根因**：`llm.py` 的 `_resolve_anthropic_model()` / `_resolve_openai_model()` 将 `router-model`、`agent-model`、`synthesizer-model` 三个别名全部映射到同一个 `ANTHROPIC_DEFAULT_MODEL` 环境变量（默认 Haiku），导致场景 B 直连模式下所有 Agent（包括 RCA 根因分析）均使用 Haiku；另，`rca_synthesizer.py` 错误地使用了 `model="agent-model"` 而非 `model="synthesizer-model"`
+- **修复**：
+  1. `services/llm.py`：三层别名分别映射，各自支持独立环境变量覆盖：`router-model` → `ANTHROPIC_ROUTER_MODEL`（默认 `claude-haiku-4-5-20251001`）；`agent-model` → `ANTHROPIC_AGENT_MODEL`（默认 `claude-sonnet-4-6`）；`synthesizer-model` → `ANTHROPIC_SYNTHESIZER_MODEL`（默认 `claude-sonnet-4-6`）；OpenAI 同理：`router-model` → `gpt-4o-mini`，`agent-model`/`synthesizer-model` → `gpt-4o`
+  2. `agents/rca_synthesizer.py`：`model="agent-model"` → `model="synthesizer-model"`
+  3. `backend/.env` / `.env.example`：废弃 `ANTHROPIC_DEFAULT_MODEL`，新增三条分层注释
+  4. `_pick_available_anthropic_model()` 降级列表：首位从 `ANTHROPIC_DEFAULT_MODEL` 改为 `ANTHROPIC_AGENT_MODEL`，并将 `claude-sonnet-4-6` 置于降级优先队首
+- **模型版本说明**：`claude-sonnet-4-6` 为 Anthropic 官方文档（2026-05-07）首推稳定 Sonnet，1M context，$3/$15 per MTok；4.6 起改用无日期格式作为 pinned snapshot

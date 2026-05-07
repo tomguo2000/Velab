@@ -49,8 +49,12 @@ def _detect_provider() -> Literal["openai", "anthropic"]:
 
 def _resolve_openai_model(model: str) -> str:
     """Translate gateway virtual model aliases for OpenAI direct mode."""
-    if model in {"agent-model", "router-model", "synthesizer-model"}:
-        return os.environ.get("OPENAI_DEFAULT_MODEL", "gpt-4o-mini")
+    if model == "router-model":
+        return os.environ.get("OPENAI_ROUTER_MODEL", "gpt-4o-mini")
+    if model == "agent-model":
+        return os.environ.get("OPENAI_AGENT_MODEL", "gpt-4o")
+    if model == "synthesizer-model":
+        return os.environ.get("OPENAI_SYNTHESIZER_MODEL", "gpt-4o")
     if model == "embedding-model":
         return os.environ.get("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
     return model
@@ -58,8 +62,12 @@ def _resolve_openai_model(model: str) -> str:
 
 def _resolve_anthropic_model(model: str) -> str:
     """Translate gateway virtual model aliases for Anthropic direct mode."""
-    if model in {"agent-model", "router-model", "synthesizer-model"}:
-        return os.environ.get("ANTHROPIC_DEFAULT_MODEL", "claude-haiku-4-5-20251001")
+    if model == "router-model":
+        return os.environ.get("ANTHROPIC_ROUTER_MODEL", "claude-haiku-4-5-20251001")
+    if model == "agent-model":
+        return os.environ.get("ANTHROPIC_AGENT_MODEL", "claude-sonnet-4-6")
+    if model == "synthesizer-model":
+        return os.environ.get("ANTHROPIC_SYNTHESIZER_MODEL", "claude-sonnet-4-6")
     return model
 
 
@@ -84,9 +92,9 @@ async def _pick_available_anthropic_model(
         return current_model
 
     preferred = [
-        os.environ.get("ANTHROPIC_DEFAULT_MODEL", ""),
+        os.environ.get("ANTHROPIC_AGENT_MODEL", ""),
+        "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
-        "claude-sonnet-4-20250514",
         "claude-3-7-sonnet-latest",
         "claude-3-5-sonnet-20241022",
         "claude-3-5-sonnet-latest",

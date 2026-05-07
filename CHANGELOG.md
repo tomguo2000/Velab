@@ -6,6 +6,22 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Scenario B 模型全部落到 Haiku**：`llm.py` 的 `_resolve_anthropic_model()` / `_resolve_openai_model()` 原将三个虚拟别名（`router-model`、`agent-model`、`synthesizer-model`）统一映射到同一个 `ANTHROPIC_DEFAULT_MODEL`（默认 `claude-haiku-4-5-20251001`），导致场景 B 直连模式下所有 Agent（含 RCA 根因分析）均跑 Haiku。
+- **`rca_synthesizer.py` 错用 `agent-model`**：`_llm_synthesize()` 中 `model="agent-model"` 改为 `model="synthesizer-model"`，确保 RCA 走 Synthesizer 层路由。
+
+### Changed
+- `services/llm.py`：三层别名分别映射，各自支持独立环境变量覆盖：
+  - `router-model` → `ANTHROPIC_ROUTER_MODEL`（默认 `claude-haiku-4-5-20251001`）/ `OPENAI_ROUTER_MODEL`（默认 `gpt-4o-mini`）
+  - `agent-model` → `ANTHROPIC_AGENT_MODEL`（默认 `claude-sonnet-4-6`）/ `OPENAI_AGENT_MODEL`（默认 `gpt-4o`）
+  - `synthesizer-model` → `ANTHROPIC_SYNTHESIZER_MODEL`（默认 `claude-sonnet-4-6`）/ `OPENAI_SYNTHESIZER_MODEL`（默认 `gpt-4o`）
+- `backend/.env` / `.env.example`：废弃 `ANTHROPIC_DEFAULT_MODEL`，替换为三条分层配置注释。
+- `_pick_available_anthropic_model()` 降级列表：首位改为读取 `ANTHROPIC_AGENT_MODEL`，`claude-sonnet-4-6` 置于优先队首。
+
+---
+
+## [2026-05-07]
+
 ### Added
 - `LogAnalyticsAgent` 新增可选 `time_hint` 参数支持：用户用自然语言描述故障时间（如"9月11日凌晨"、"晚上21点"），LLM 提取后通过 orchestrator 注入 agent context，将日志查询窗口缩窄至相关时段；无法解析时自动退化为全量分析。
 - 新增 `_parse_time_hint()` 函数，支持中文月日、时段限定词（凌晨/上午/下午/晚上等）及精确小时的解析，以 bundle 有效时间范围为日历参考锚点。

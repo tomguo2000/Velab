@@ -123,7 +123,7 @@ class RCASynthesizerAgent(BaseAgent):
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ]
-        response = await chat_completion(messages, model="agent-model", temperature=0.3, max_tokens=2048)
+        response = await chat_completion(messages, model="synthesizer-model", temperature=0.3, max_tokens=2048)
         llm_text: str = getattr(response, "content", None) or ""
         if not llm_text.strip():
             raise ValueError("Empty LLM response")

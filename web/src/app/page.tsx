@@ -33,6 +33,8 @@ import {
   ChatMessage,
   AgentStep,
   UploadSummary,
+  EventDigest,
+  EventDigestItem,
 } from "@/lib/types";
 import { parseSSEBuffer } from "@/lib/sseParse";
 import { getBundleStageLabel } from "@/lib/bundleStatus";
@@ -41,6 +43,53 @@ const MAX_STATUS_POLL_SECONDS = 600;
 const MAX_STATUS_ERROR_RETRIES = 5;
 const DRAFT_SESSION_ID = "__draft__";
 const ACTIVE_SESSION_STORAGE_KEY = "fota_active_session_id";
+
+/** 将后端 event 对象转为统一结构：优先用 aligned_timestamp，否则 raw_timestamp */
+function _toDigestItem(ev: Record<string, unknown>): EventDigestItem {
+  const aligned = typeof ev.aligned_timestamp === "number" ? ev.aligned_timestamp : undefined;
+  const raw = typeof ev.raw_timestamp === "number" ? ev.raw_timestamp : undefined;
+  const MIN_VALID_TS = 1577836800;
+  const ts = aligned && aligned >= MIN_VALID_TS ? aligned : raw;
+  return {
+    eventType: String(ev.event_type ?? ""),
+    timestamp: ts,
+    controller: String(ev.controller ?? ""),
+    rawLine: typeof ev.raw_line === "string" ? ev.raw_line.slice(0, 200) : undefined,
+  };
+}
+
+function computeEventDigest(events: unknown[]): EventDigest {
+  const CRITICAL_TYPES = new Set(["panic_or_fatal", "kernel_oops_or_bug", "kernel_watchdog"]);
+  const FOTA_RESULT_TYPES = new Set(["fota_install_success", "fota_install_failure"]);
+
+  const records = events.filter((e): e is Record<string, unknown> => typeof e === "object" && e !== null);
+
+  let lastReboot: EventDigestItem | undefined;
+  let lastCriticalFault: EventDigestItem | undefined;
+  let fotaResult: (EventDigestItem & { success: boolean }) | undefined;
+  let criticalCount = 0;
+
+  for (const ev of records) {
+    const type = String(ev.event_type ?? "");
+    const item = _toDigestItem(ev);
+    const ts = item.timestamp ?? 0;
+
+    if (type === "system_reboot") {
+      if (!lastReboot || ts > (lastReboot.timestamp ?? 0)) lastReboot = item;
+    }
+    if (CRITICAL_TYPES.has(type)) {
+      criticalCount++;
+      if (!lastCriticalFault || ts > (lastCriticalFault.timestamp ?? 0)) lastCriticalFault = item;
+    }
+    if (FOTA_RESULT_TYPES.has(type)) {
+      if (!fotaResult || ts > (fotaResult.timestamp ?? 0)) {
+        fotaResult = { ...item, success: type === "fota_install_success" };
+      }
+    }
+  }
+
+  return { totalEvents: records.length, lastReboot, lastCriticalFault, fotaResult, criticalCount };
+}
 
 const createSessionId = (): string =>
   `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -843,12 +892,26 @@ export default function Home() {
         }
 
         finalFileStates.set(file.name, "completed");
+
+        // 拉取事件摘要（上传完成后立即获取，不阻塞 UI）
+        let eventDigest: EventDigest | undefined;
+        try {
+          const evResp = await fetch(`/api/bundle-events/${encodeURIComponent(bundleId)}?limit=500`);
+          if (evResp.ok) {
+            const evData: unknown = await evResp.json();
+            if (Array.isArray(evData)) eventDigest = computeEventDigest(evData);
+          }
+        } catch {
+          // 摘要加载失败不影响主流程
+        }
+
         uploadSummaries.push({
           bundleId,
           fileName: file.name,
           fileCount: finalStatus.file_count ?? 0,
           filesByController: finalStatus.files_by_controller ?? {},
           validTimeRangeByController: finalStatus.valid_time_range_by_controller ?? {},
+          eventDigest,
         });
         updateUploadMessage((message) => withUpdatedFile(message, file.name, {
           status: "completed",

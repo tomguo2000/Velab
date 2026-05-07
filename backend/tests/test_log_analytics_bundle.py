@@ -215,7 +215,7 @@ async def test_execute_with_bundle_id_calls_bundle_loader(agent: LogAnalyticsAge
                     context={"bundle_id": "abc-123", "workspace_path": "/tmp/ws"},
                 )
 
-    mock_bundle.assert_called_once_with("abc-123", None)
+    mock_bundle.assert_called_once_with("abc-123", None, None)
     mock_analyze.assert_called_once()
 
 

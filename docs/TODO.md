@@ -1,7 +1,7 @@
 # Velab 项目任务清单
 
-> **最后更新**: 2026-05-03（LLM 集成测试全面补全 + 代码审查安全加固）
-> **当前阶段**: Sprint 5 完成，Sprint 6 未开始
+> **最后更新**: 2026-05-07（log_pipeline 时间范围修复 + EventDigest UI + time_hint 功能）
+> **当前阶段**: Sprint 6 进行中
 > **下一阶段**: Sprint 6 - 真实 Jira 数据同步、权限体系与操作审计、生产部署
 
 ---
@@ -465,6 +465,14 @@
 - ✅ `JiraKnowledgeAgent` 接入 embedding 语义检索（`AGENTS_USE_EMBEDDINGS` 开关控制）(2026-05-03)
 - ✅ 单元测试全面补全：后端 4 个模块（redaction/chain_log/tool_functions/semantic_cache）+ 前端 7 个 API 路由，后端 145→208 passed，前端 185→201 passed (2026-05-03)
 
+### Sprint 6（进行中）🚧
+- ✅ log_pipeline 时间范围修复（catalog.py `ELSE NULL` → `ELSE valid_ts_min/max`；`_file_overlaps()` 处理 `clock_offset=None` 有效时间戳文件）(2026-05-07)
+- ✅ EventDigest 上传摘要卡（`EventDigestPanel` 组件，展示最近重启/故障/FOTA结果）(2026-05-07)
+- ✅ `time_hint` 可选时间窗口缩窄（`_parse_time_hint()` 解析中文时间描述，orchestrator 注入 context）(2026-05-07)
+- ⬜ 真实 Jira 数据同步
+- ⬜ 权限体系与操作审计
+- ⬜ 生产部署
+
 ---
 
 ## 📊 进度总览
@@ -476,7 +484,7 @@
 | 离线预处理管线 | 100% | ✅ 完成 |
 | 数据库与API | 100% | ✅ 完成 |
 | 任务队列集成 | 100% | ✅ 完成 |
-| API测试 | 100% | ✅ 完成（后端 219 / 前端 201）|
+| API测试 | 100% | ✅ 完成（后端 344 / 前端 201）|
 | MVP核心功能 | 100% | ✅ 完成 |
 | 后端核心逻辑（在线诊断增强） | 100% | ✅ 完成 |
 | 前端交互功能 | 100% | ✅ 完成 |
@@ -490,7 +498,7 @@
 
 **总体进度**: 约 **99%**（剩余：真实 Jira 数据同步、权限体系与操作审计、人工评审）
 
-> 测试覆盖率（2026-05-03）：后端 **350 passed**；前端 statements 84.7% / branches 74.4% / functions 83.9% / lines 87.8%，全部高于红线。
+> 测试覆盖率（2026-05-07）：后端 **344 passed**；前端 statements 84.7% / branches 74.4% / functions 83.9% / lines 87.8%，全部高于红线。
 
 ---
 

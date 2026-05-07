@@ -1,10 +1,143 @@
 "use client";
 
 import { MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { UploadSummary } from "@/lib/types";
+import { EventDigest, EventDigestItem, UploadSummary } from "@/lib/types";
 
 interface UploadSummaryCardProps {
   summary: UploadSummary;
+}
+
+// ---- EventDigestPanel ----
+
+const EVENT_TYPE_LABELS: Record<string, string> = {
+  system_reboot: "系统重启",
+  panic_or_fatal: "内核崩溃/致命异常",
+  kernel_oops_or_bug: "Kernel Oops/BUG",
+  kernel_watchdog: "看门狗复位",
+  fota_install_success: "FOTA 安装成功",
+  fota_install_failure: "FOTA 安装失败",
+  fota_download_start: "FOTA 开始下载",
+  fota_install_start: "FOTA 开始安装",
+};
+
+function formatTs(ts: number | undefined, formatter: Intl.DateTimeFormat): string {
+  if (typeof ts !== "number" || Number.isNaN(ts)) return "—";
+  return formatter.format(new Date(ts * 1000));
+}
+
+function DigestRow({
+  icon,
+  label,
+  item,
+  color,
+  formatter,
+}: {
+  icon: string;
+  label: string;
+  item: EventDigestItem;
+  color: string;
+  formatter: Intl.DateTimeFormat;
+}) {
+  const typeLabel = EVENT_TYPE_LABELS[item.eventType] ?? item.eventType;
+  return (
+    <div className="flex items-start gap-2 text-xs">
+      <span className="mt-0.5 flex-shrink-0">{icon}</span>
+      <div className="min-w-0">
+        <span className="font-medium" style={{ color }}>
+          {label}
+        </span>
+        <span className="ml-1" style={{ color: "var(--text-primary)" }}>
+          {typeLabel}
+        </span>
+        <span className="ml-1" style={{ color: "var(--text-secondary)" }}>
+          [{item.controller}]
+        </span>
+        <span className="ml-1" style={{ color: "var(--text-muted)" }}>
+          {formatTs(item.timestamp, formatter)}
+        </span>
+        {item.rawLine ? (
+          <div
+            className="mt-0.5 truncate rounded px-1.5 py-0.5 font-mono text-[10px]"
+            style={{ background: "var(--border-light)", color: "var(--text-secondary)" }}
+            title={item.rawLine}
+          >
+            {item.rawLine}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EventDigestPanel({
+  digest,
+  formatter,
+}: {
+  digest: EventDigest;
+  formatter: Intl.DateTimeFormat;
+}) {
+  const hasFault = Boolean(digest.lastCriticalFault);
+  const hasFota = Boolean(digest.fotaResult);
+  const hasReboot = Boolean(digest.lastReboot);
+
+  if (!hasReboot && !hasFault && !hasFota && digest.totalEvents === 0) return null;
+
+  return (
+    <div
+      className="mt-2 rounded-lg border p-2.5 grid gap-2"
+      style={{ borderColor: "var(--border-color)", background: "var(--bg-primary)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold" style={{ color: "var(--text-secondary)" }}>
+          事件摘要
+        </span>
+        <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          共 {digest.totalEvents} 个事件
+          {digest.criticalCount > 0 && (
+            <span className="ml-1" style={{ color: "#f85149" }}>
+              · {digest.criticalCount} 个严重异常
+            </span>
+          )}
+        </span>
+      </div>
+
+      {digest.lastReboot && (
+        <DigestRow
+          icon="🔄"
+          label="最近重启"
+          item={digest.lastReboot}
+          color="var(--text-primary)"
+          formatter={formatter}
+        />
+      )}
+
+      {digest.lastCriticalFault && (
+        <DigestRow
+          icon="🔴"
+          label="最后故障"
+          item={digest.lastCriticalFault}
+          color="#f85149"
+          formatter={formatter}
+        />
+      )}
+
+      {digest.fotaResult && (
+        <DigestRow
+          icon={digest.fotaResult.success ? "✅" : "❌"}
+          label={digest.fotaResult.success ? "FOTA 结果" : "FOTA 结果"}
+          item={digest.fotaResult}
+          color={digest.fotaResult.success ? "#3fb950" : "#f85149"}
+          formatter={formatter}
+        />
+      )}
+
+      {!hasReboot && !hasFault && !hasFota && digest.totalEvents > 0 && (
+        <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+          已解析 {digest.totalEvents} 个事件（无重启/故障/FOTA 记录）
+        </div>
+      )}
+    </div>
+  );
 }
 
 type Lane = {
@@ -390,6 +523,8 @@ export default function UploadSummaryCard({ summary }: UploadSummaryCardProps) {
           事件 {eventsLoading ? "加载中..." : `${visibleEvents.length}/${events.length}`}
         </span>
       </div>
+
+      {summary.eventDigest && <EventDigestPanel digest={summary.eventDigest} formatter={localDateTimeFormatter} />}
 
       <div className="mt-2 rounded-lg border p-2" style={{ borderColor: "var(--border-color)", background: "var(--bg-primary)" }}>
         <div className="mb-1 flex items-center justify-between text-[11px]" style={{ color: "var(--text-secondary)" }}>

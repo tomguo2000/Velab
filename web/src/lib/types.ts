@@ -37,12 +37,30 @@ export interface TimeRangeSummary {
   end?: number;
 }
 
+export interface EventDigestItem {
+  eventType: string;
+  timestamp?: number;
+  controller: string;
+  rawLine?: string;
+}
+
+export interface EventDigest {
+  totalEvents: number;
+  lastReboot?: EventDigestItem;
+  /** panic_or_fatal / kernel_oops_or_bug / kernel_watchdog 中最晚的一条 */
+  lastCriticalFault?: EventDigestItem;
+  /** fota_install_success 或 fota_install_failure 中最晚的一条 */
+  fotaResult?: EventDigestItem & { success: boolean };
+  criticalCount: number;
+}
+
 export interface UploadSummary {
   bundleId: string;
   fileName: string;
   fileCount: number;
   filesByController: Record<string, number>;
   validTimeRangeByController: Record<string, TimeRangeSummary>;
+  eventDigest?: EventDigest;
 }
 
 export interface UploadFileProgress {

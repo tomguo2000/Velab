@@ -376,12 +376,12 @@ class Catalog:
                      CASE
                        WHEN offset_method = 'segmented' THEN valid_ts_min
                        WHEN clock_offset IS NOT NULL THEN valid_ts_min + clock_offset
-                       ELSE NULL
+                       ELSE valid_ts_min
                      END AS aligned_min,
                      CASE
                        WHEN offset_method = 'segmented' THEN valid_ts_max
                        WHEN clock_offset IS NOT NULL THEN valid_ts_max + clock_offset
-                       ELSE NULL
+                       ELSE valid_ts_max
                      END AS aligned_max
                 FROM catalog
                WHERE bundle_id = ?

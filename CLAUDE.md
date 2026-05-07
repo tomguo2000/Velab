@@ -157,3 +157,17 @@
 - **[I-5] route.ts bundleId UUID 校验**：前端 API 路由增加长度上限（36）和 UUID 正则校验
 - **[S-1] http.py 常量提升**：`_PLAIN_SUFFIXES`/`_ARCHIVE_SUFFIXES` 移至模块级 `frozenset`，避免每次请求重建
 - **测试总量**：350 passed（后端），201 passed（前端），全量无回归
+
+### 2026-05-07: log_pipeline 时间范围修复 + EventDigest UI + time_hint 功能
+- **修复 catalog.py 时间范围计算**：`valid_time_range_by_controller()` SQL CASE 表达式 `ELSE NULL` 改为 `ELSE valid_ts_min/max`，修复 FOTA Java 文本日志（`clock_offset=NULL`、时间戳已是 wall-clock）被排除在有效时间范围之外的问题
+- **修复 range_query.py `_file_overlaps()`**：`clock_offset is None` 时不再直接返回 `False`，改为检查 `valid_ts_min/max` 是否存在并直接比较；`unsynced_files` 条件增加 `valid_ts_min is None`，防止有效文件被双重发送
+- **EventDigest 上传摘要卡**：日志包处理完成后聊天界面自动展示事件摘要（最近重启、最后严重故障、FOTA 结果）
+  - `web/src/lib/types.ts`：新增 `EventDigestItem`、`EventDigest` 接口；`UploadSummary` 扩展可选 `eventDigest` 字段
+  - `web/src/app/page.tsx`：bundle 处理完成后调用 `/api/bundle-events/{id}?limit=500`，计算 digest 附加到 `uploadSummaries`
+  - `web/src/components/UploadSummaryCard.tsx`：新增 `EventDigestPanel` 组件，渲染 🔄重启 / 🔴故障 / ✅❌FOTA结果行
+- **time_hint 可选时间窗口缩窄**：
+  - `backend/agents/log_analytics.py`：新增 `_parse_time_hint()` 函数，解析中文时间描述（月日、凌晨/上午/下午/晚上等时段词、精确小时），以 bundle 有效时间范围为日历锚点，返回 `(start, end)` Unix 时间戳对，无法解析返回 `None`
+  - `LogAnalyticsAgent.tool_schema()` 覆盖：在 LLM 函数调用 schema 中暴露可选 `time_hint` 字段
+  - `_load_logs_from_bundle()` 新增 `time_hint` 参数，解析成功时缩窄查询窗口，失败时退化为全量
+  - `backend/agents/orchestrator.py`：`_run_agent()` 从 tool call args 提取 `time_hint` 注入 `agent_context`
+- **测试总量**：344 passed（后端），201 passed（前端），全量无回归

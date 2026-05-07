@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -18,8 +20,104 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "logs"
 
 # 每次从 bundle API 拉取日志的行数上限（避免超出 LLM 上下文窗口）
 _BUNDLE_LOG_LIMIT = 2000
+# 精确时间点命中时，向前/向后各扩展的秒数（±2h 窗口）
+_TIME_HINT_WINDOW_SEC = 7200
 
 log = logging.getLogger(__name__)
+
+# ── 时间描述解析 ─────────────────────────────────────────────────────────────
+
+_MONTH_DAY_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]?")
+_HOUR_RE = re.compile(r"(\d{1,2})\s*[点时]")
+
+_QUALIFIER_RANGES: dict[str, tuple[int, int]] = {
+    "凌晨": (0, 6),
+    "早上": (6, 9),
+    "上午": (6, 12),
+    "中午": (11, 14),
+    "下午": (12, 18),
+    "傍晚": (17, 20),
+    "晚上": (18, 24),
+    "夜": (20, 24),
+}
+
+_PM_QUALIFIERS = {"下午", "傍晚", "晚上", "夜"}
+
+
+def _parse_time_hint(
+    time_hint: str,
+    global_start: float,
+    global_end: float,
+) -> tuple[float, float] | None:
+    """将自然语言时间描述解析为 (start, end) unix 时间戳对。
+
+    以 bundle 的全局有效时间范围作为日历上下文（年份/月份参考）。
+    解析失败返回 None，调用方应退化为全量范围。
+
+    支持的格式示例：
+      "9月11日凌晨"、"9月11日晚上21点"、"大约21点"、"昨天上午10点左右"
+    """
+    if not time_hint or not time_hint.strip():
+        return None
+
+    ref_dt = datetime.fromtimestamp(global_start, tz=timezone.utc)
+    year = ref_dt.year
+
+    # 检测时段限定词
+    qualifier = next((q for q in _QUALIFIER_RANGES if q in time_hint), None)
+
+    # 尝试匹配 "X月Y日"
+    md_m = _MONTH_DAY_RE.search(time_hint)
+    if md_m:
+        month, day = int(md_m.group(1)), int(md_m.group(2))
+        hour_m = _HOUR_RE.search(time_hint)
+        try:
+            if hour_m:
+                hour = int(hour_m.group(1))
+                # 12h → 24h 转换
+                if qualifier in _PM_QUALIFIERS and hour < 12:
+                    hour += 12
+                center = datetime(year, month, day, hour, 0, tzinfo=timezone.utc)
+                return (
+                    center.timestamp() - _TIME_HINT_WINDOW_SEC,
+                    center.timestamp() + _TIME_HINT_WINDOW_SEC,
+                )
+            else:
+                base = datetime(year, month, day, 0, 0, tzinfo=timezone.utc)
+                if qualifier:
+                    h_start, h_end = _QUALIFIER_RANGES[qualifier]
+                    return (
+                        (base + timedelta(hours=h_start)).timestamp(),
+                        (base + timedelta(hours=h_end)).timestamp(),
+                    )
+                else:
+                    # 只有日期，取当天全天
+                    return base.timestamp(), (base + timedelta(hours=24)).timestamp()
+        except ValueError:
+            return None
+
+    # 无日期，仅有时刻 —— 在 bundle 范围内的最后一天匹配该小时
+    hour_m = _HOUR_RE.search(time_hint)
+    if hour_m:
+        hour = int(hour_m.group(1))
+        if qualifier in _PM_QUALIFIERS and hour < 12:
+            hour += 12
+        # 以 bundle 的结束日期为参考日
+        ref_end = datetime.fromtimestamp(global_end, tz=timezone.utc)
+        try:
+            candidate = ref_end.replace(hour=hour, minute=0, second=0, microsecond=0)
+            # 若候选时刻早于 bundle 开始，改用开始日期
+            if candidate.timestamp() < global_start:
+                candidate = ref_dt.replace(hour=hour, minute=0, second=0, microsecond=0)
+            return (
+                candidate.timestamp() - _TIME_HINT_WINDOW_SEC,
+                candidate.timestamp() + _TIME_HINT_WINDOW_SEC,
+            )
+        except ValueError:
+            return None
+
+    return None
+
 
 _SYSTEM_PROMPT = """\
 你是车载 FOTA（固件空中升级）诊断专家，擅长分析 iCGM/MPU/IVI/MCU/IPK 等 ECU 的升级日志。
@@ -48,6 +146,17 @@ class LogAnalyticsAgent(BaseAgent):
         "适用于：升级挂死、ECU刷写失败、校验异常、死循环、下载超时等问题。"
     )
 
+    def tool_schema(self) -> dict:
+        schema = super().tool_schema()
+        schema["function"]["parameters"]["properties"]["time_hint"] = {
+            "type": "string",
+            "description": (
+                "用户描述的大概故障时间，如 '9月11日凌晨'、'昨晚21点'、'上午10点左右'。"
+                "若用户未提及时间或时间不确定，不要传此字段（系统将全量分析日志）。"
+            ),
+        }
+        return schema
+
     async def execute(self, task: str, keywords: list[str] | None = None, context: dict | None = None) -> AgentResult:
         with sync_step_timer(
             log,
@@ -56,9 +165,10 @@ class LogAnalyticsAgent(BaseAgent):
             keywords=(keywords or [])[:8],
         ):
             bundle_id: Optional[str] = (context or {}).get("bundle_id")
+            time_hint: Optional[str] = (context or {}).get("time_hint") or None
             if bundle_id:
-                log_content = await self._load_logs_from_bundle(bundle_id, keywords)
-                source_label = f"bundle:{bundle_id}"
+                log_content = await self._load_logs_from_bundle(bundle_id, keywords, time_hint)
+                source_label = f"bundle:{bundle_id}" + (f" time_hint={time_hint!r}" if time_hint else "")
             else:
                 log_content = self._load_logs(keywords)
                 source_label = "data/logs"
@@ -94,10 +204,16 @@ class LogAnalyticsAgent(BaseAgent):
             await self._write_workspace(context, analysis)
             return analysis
 
-    async def _load_logs_from_bundle(self, bundle_id: str, keywords: list[str] | None) -> str:
+    async def _load_logs_from_bundle(
+        self,
+        bundle_id: str,
+        keywords: list[str] | None,
+        time_hint: Optional[str] = None,
+    ) -> str:
         """Fetch log lines from the log_pipeline bundle API (NDJSON stream).
 
-        Falls back to data/logs/ if the bundle is not found or unavailable.
+        When *time_hint* is provided the query window is narrowed around the
+        described time.  Falls back to data/logs/ if the bundle is not found.
         """
         backend_base = getattr(settings, "BACKEND_BASE_URL", "http://localhost:8000")
         url = f"{backend_base}/api/bundles/{bundle_id}/logs"
@@ -122,8 +238,27 @@ class LogAnalyticsAgent(BaseAgent):
                 if not starts or not ends:
                     log.info("bundle %s time range incomplete, falling back", bundle_id)
                     return self._load_logs(keywords)
-                t_start: str = str(min(starts))
-                t_end: str = str(max(ends))
+
+                global_start = min(starts)
+                global_end = max(ends)
+
+                # 若提供了时间描述，尝试缩窄查询窗口；失败时退化为全量范围
+                if time_hint:
+                    parsed = _parse_time_hint(time_hint, global_start, global_end)
+                    if parsed:
+                        t_start, t_end = str(parsed[0]), str(parsed[1])
+                        log.info(
+                            "bundle %s time_hint=%r → window [%s, %s]",
+                            bundle_id, time_hint, t_start, t_end,
+                        )
+                    else:
+                        log.info(
+                            "bundle %s time_hint=%r could not be parsed, using full range",
+                            bundle_id, time_hint,
+                        )
+                        t_start, t_end = str(global_start), str(global_end)
+                else:
+                    t_start, t_end = str(global_start), str(global_end)
 
                 params: dict = {"limit": _BUNDLE_LOG_LIMIT, "start": t_start, "end": t_end}
 

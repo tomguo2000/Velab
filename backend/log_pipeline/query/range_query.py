@@ -121,7 +121,12 @@ def _file_overlaps(meta: LogFileMeta, aligned_start: float, aligned_end: float) 
     if meta.offset_method == AlignmentMethod.SEGMENTED:
         return meta.valid_ts_max >= aligned_start and meta.valid_ts_min <= aligned_end
     if meta.clock_offset is None:
-        return False
+        # Files whose raw timestamps already passed is_effective_wall_clock_ts (e.g.
+        # FOTA text logs with 2025 dates) are stored with valid_ts_min/max in wall-
+        # clock space. No offset needed — use them directly.
+        if meta.valid_ts_min is None or meta.valid_ts_max is None:
+            return False
+        return meta.valid_ts_max >= aligned_start and meta.valid_ts_min <= aligned_end
     file_aligned_min = meta.valid_ts_min + meta.clock_offset
     file_aligned_max = meta.valid_ts_max + meta.clock_offset
     return file_aligned_max >= aligned_start and file_aligned_min <= aligned_end
@@ -156,11 +161,15 @@ class RangeQuery:
         windowed = [f for f in files if _file_overlaps(f, params.start, params.end)]
         # SEGMENTED files have NULL clock_offset by convention but are NOT
         # unsynced — exclude them from the unsynced bucket.
+        # Similarly, files with valid_ts_min already in wall-clock space are
+        # already in `windowed` after the _file_overlaps fix — skip them here
+        # to avoid double-emitting.
         unsynced_files = (
             [
                 f for f in files
                 if f.clock_offset is None
                 and f.offset_method != AlignmentMethod.SEGMENTED
+                and (f.valid_ts_min is None or f.valid_ts_max is None)
             ]
             if params.include_unsynced
             else []

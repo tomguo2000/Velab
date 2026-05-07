@@ -462,12 +462,15 @@ async def orchestrate(
 
         # Execute all agents concurrently
         async def _run_agent(agent, args):
-            # Inject workspace_path and bundle_id into agent context
+            # Inject workspace_path, bundle_id and time_hint into agent context
             agent_context: dict = {}
             if workspace_path:
                 agent_context["workspace_path"] = workspace_path
             if bundle_id:
                 agent_context["bundle_id"] = bundle_id
+            raw_time_hint = args.get("time_hint")
+            if isinstance(raw_time_hint, str) and raw_time_hint.strip():
+                agent_context["time_hint"] = raw_time_hint.strip()
             return await agent.execute(
                 task=args.get("task", ""),
                 keywords=args.get("keywords"),

@@ -298,5 +298,138 @@ describe('API Route: /api/chat', () => {
 
             expect(mockFetch).toHaveBeenCalled()
         })
+
+        it('应该拒绝超长消息并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'A'.repeat(10001),
+                    scenarioId: 'test',
+                    history: [],
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝无效 JSON 并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: 'not-valid-json{{{',
+                headers: { 'Content-Type': 'application/json' },
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toBe('Invalid JSON')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝 null body 并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: 'null',
+                headers: { 'Content-Type': 'application/json' },
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toBe('Invalid request body')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝 scenarioId 为非字符串类型并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'Test',
+                    scenarioId: 123,
+                    history: [],
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toContain('scenarioId')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝 history 为非数组类型并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'Test',
+                    history: 'not-an-array',
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toContain('history')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝过长的 bundleId 并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'Test',
+                    bundleId: 'a'.repeat(37),
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toContain('bundleId')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该拒绝格式非法的 bundleId 并返回 400', async () => {
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'Test',
+                    bundleId: 'not-a-valid-uuid',
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(response.status).toBe(400)
+            const body = await response.json()
+            expect(body.error).toContain('bundleId')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('应该接受格式合法的 bundleId', async () => {
+            const mockStream = new ReadableStream()
+            mockFetch.mockResolvedValue({ ok: true, body: mockStream })
+
+            const request = new NextRequest('http://localhost:3000/api/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                    message: 'Test',
+                    bundleId: '550e8400-e29b-41d4-a716-446655440000',
+                }),
+            })
+
+            const response = await POST(request)
+
+            expect(mockFetch).toHaveBeenCalled()
+            expect(response.headers.get('Content-Type')).toBe('text/event-stream')
+        })
     })
 })

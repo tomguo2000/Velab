@@ -299,13 +299,16 @@ npm run test:watch
 # 生成覆盖率报告
 npm run test:coverage
 
+# CI 覆盖率门禁（branches/functions/lines/statements）
+npm run test:ci
+
 # 可视化测试界面
 npm run test:ui
 ```
 
 ### 配置文件
 
-- [`vitest.config.ts`](vitest.config.ts:1) - Vitest 配置文件
+- [`vitest.config.ts`](vitest.config.ts:1) - Vitest 配置文件。全局覆盖率阈值为 branches ≥ 70%、functions ≥ 70%、lines ≥ 80%、statements ≥ 80%；`src/__tests__/**` 为测试辅助代码，不计入生产覆盖率门禁。
 - [`vitest.setup.ts`](vitest.setup.ts:1) - Vitest 设置文件
 
 ### 详细测试文档

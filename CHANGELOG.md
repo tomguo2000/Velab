@@ -15,6 +15,7 @@
 - **Scenario B 模型全部落到 Haiku**：`llm.py` 的 `_resolve_anthropic_model()` / `_resolve_openai_model()` 原将三个虚拟别名（`router-model`、`agent-model`、`synthesizer-model`）统一映射到同一个 `ANTHROPIC_DEFAULT_MODEL`（默认 `claude-haiku-4-5-20251001`），导致场景 B 直连模式下所有 Agent（含 RCA 根因分析）均跑 Haiku。
 - **`rca_synthesizer.py` 错用 `agent-model`**：`_llm_synthesize()` 中 `model="agent-model"` 改为 `model="synthesizer-model"`，确保 RCA 走 Synthesizer 层路由。
 - **Embedding 索引未被运行时消费**：`doc_retrieval.py` 之前始终走 TF-IDF，`jira_knowledge.py` 之前每次请求重复全量向量化，现已统一为“预计算索引优先 + 在线 embedding 兜底 + TF-IDF 回退”的生产链路。
+- **前端 CI 分支覆盖率误计入测试辅助代码**：`vitest.config.ts` 排除 `src/__tests__/**`，避免 MSW handlers / 测试工具代码拉低全局 branch coverage，恢复 `branches >= 70%` 质量门槛的有效性。
 
 ### Changed
 - `services/llm.py`：三层别名分别映射，各自支持独立环境变量覆盖：

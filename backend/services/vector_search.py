@@ -140,7 +140,7 @@ class VectorSearchService:
         results = self._search_with_tfidf(query, top_k, min_score=0.05)
 
         return [
-            {**r["metadata"], "similarity_score": r["score"]}
+            {**r["metadata"], "similarity_score": r["score"], "retrieval_mode": r.get("retrieval_mode", "tfidf")}
             for r in results
         ]
 
@@ -398,7 +398,10 @@ class VectorSearchService:
 
         await self._index_with_embeddings(docs, "text")
         results = await self._search_with_embeddings(query, top_k, min_score=0.3)
-        return [{**r["metadata"], "similarity_score": r["score"], "retrieval_mode": r.get("retrieval_mode", "tfidf") } for r in results]
+        return [
+            {**r["metadata"], "similarity_score": r["score"], "retrieval_mode": r.get("retrieval_mode", "embedding")}
+            for r in results
+        ]
 
     async def async_search_documents(
         self,
@@ -417,7 +420,10 @@ class VectorSearchService:
 
         await self._index_with_embeddings(docs, "text")
         results = await self._search_with_embeddings(query, top_k, min_score=0.3)
-        return [{**r["metadata"], "similarity_score": r["score"]} for r in results]
+        return [
+            {**r["metadata"], "similarity_score": r["score"], "retrieval_mode": r.get("retrieval_mode", "embedding")}
+            for r in results
+        ]
 
 
 # 全局单例：默认由配置控制；运行时可复用同一服务实例

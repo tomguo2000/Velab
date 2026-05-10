@@ -114,8 +114,8 @@ class DocRetrievalAgent(BaseAgent):
 
                 detail_parts.append(
                     f"### {i}. 《{title}》\n"
-                    f"**相关度**: {score:.0%}  
-**检索模式**: {mode}\n\n"
+                    f"**相关度**: {score:.0%}  \n"
+                    f"**检索模式**: {mode}\n\n"
                     f"{excerpt}\n"
                 )
                 sources.append({
@@ -184,7 +184,14 @@ class DocRetrievalAgent(BaseAgent):
                 svc = VectorSearchService(use_embeddings=True)
                 if self._load_embed_index_if_available(svc, DOC_EMBED_INDEX_PATH):
                     results = await svc.search(query, top_k=5, min_score=0.3)
-                    return [{**r["metadata"], "similarity_score": r["score"]} for r in results]
+                    return [
+                        {
+                            **r["metadata"],
+                            "similarity_score": r["score"],
+                            "retrieval_mode": r.get("retrieval_mode", "embedding"),
+                        }
+                        for r in results
+                    ]
 
                 return await svc.async_search_documents(query, documents, top_k=5)
             except Exception as exc:
